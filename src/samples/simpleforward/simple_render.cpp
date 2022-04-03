@@ -22,6 +22,7 @@ void SimpleRender::SetupDeviceFeatures()
 void SimpleRender::SetupDeviceExtensions()
 {
   m_deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+  m_deviceExtensions.push_back(VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME);
 }
 
 void SimpleRender::SetupValidationLayers()
@@ -88,7 +89,6 @@ void SimpleRender::InitPresentation(VkSurfaceKHR &a_surface, bool initGUI)
   vk_utils::getSupportedDepthFormat(m_physicalDevice, depthFormats, &m_depthBuffer.format);
   m_depthBuffer  = vk_utils::createDepthTexture(m_device, m_physicalDevice, m_width, m_height, m_depthBuffer.format);
   m_frameBuffers = vk_utils::createFrameBuffers(m_device, m_swapchain, m_screenRenderPass, m_depthBuffer.view);
-
   if(initGUI)
     m_pGUIRender = std::make_shared<ImGuiRender>(m_instance, m_device, m_physicalDevice, m_queueFamilyIDXs.graphics, m_graphicsQueue, m_swapchain);
 }
@@ -128,7 +128,8 @@ void SimpleRender::CreateDevice(uint32_t a_deviceId)
 void SimpleRender::SetupSimplePipeline()
 {
   std::vector<std::pair<VkDescriptorType, uint32_t> > dtypes = {
-      {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,             1}
+      {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,             1},
+      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,     1}
   };
 
   if(m_pBindings == nullptr)
@@ -136,6 +137,7 @@ void SimpleRender::SetupSimplePipeline()
 
   m_pBindings->BindBegin(VK_SHADER_STAGE_FRAGMENT_BIT);
   m_pBindings->BindBuffer(0, m_ubo, VK_NULL_HANDLE, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+  m_pBindings->BindImage(1, m_NoiseMapTex.view, m_NoiseTexSampler, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
   m_pBindings->BindEnd(&m_dSet, &m_dSetLayout);
 
   // if we are recreating pipeline (for example, to reload shaders)
@@ -164,6 +166,53 @@ void SimpleRender::SetupSimplePipeline()
 
   m_basicForwardPipeline.pipeline = maker.MakePipeline(m_device, m_pScnMgr->GetPipelineVertexInputStateCreateInfo(),
                                                        m_screenRenderPass, {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR});
+}
+
+void SimpleRender::CreateLandscapeBuffers() 
+{
+  std::vector<vertex> vertices;
+  vertices.resize(NoiseMapHeight * NoiseMapWidth);
+
+  for (size_t i = 0; i < NoiseMapHeight-1; i++) 
+  {
+    for (size_t j = 0; j < NoiseMapWidth-1; j++)
+    {
+      indices.push_back((i+1) * NoiseMapWidth + j+1);
+      indices.push_back(i * NoiseMapWidth + j);
+      indices.push_back(i * NoiseMapWidth + j+1);
+
+      indices.push_back((i+1) * NoiseMapWidth + j);
+      indices.push_back(i * NoiseMapWidth + j);
+      indices.push_back((i+1) * NoiseMapWidth + j+1);
+    }
+  }
+  //uint32_t m_totalIndices = static_cast<uint32_t>(indices.size());
+
+  VkDeviceSize vertexBufSize = sizeof(vertex) * NoiseMapHeight * NoiseMapWidth;
+  VkDeviceSize indexBufSize  = sizeof(uint32_t) * indices.size();
+
+  VkMemoryRequirements vertMemReq, idxMemReq; 
+  m_landVertBuf = vk_utils::createBuffer(m_device, vertexBufSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, &vertMemReq);
+  m_landIndBuf = vk_utils::createBuffer(m_device, indexBufSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, &idxMemReq);
+
+  VkMemoryAllocateFlags allocFlags{};
+  m_landMemAlloc = vk_utils::allocateAndBindWithPadding(m_device, m_physicalDevice, { m_landVertBuf, m_landIndBuf }, allocFlags);
+
+  size_t pad = vk_utils::getPaddedSize(vertMemReq.size, idxMemReq.alignment);
+
+  VkMemoryAllocateInfo allocateInfo = {};
+  allocateInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  allocateInfo.pNext           = nullptr;
+  allocateInfo.allocationSize  = pad + idxMemReq.size;
+  allocateInfo.memoryTypeIndex = vk_utils::findMemoryType(vertMemReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_physicalDevice);
+
+
+  VK_CHECK_RESULT(vkAllocateMemory(m_device, &allocateInfo, nullptr, &m_landMemAlloc));
+
+  VK_CHECK_RESULT(vkBindBufferMemory(m_device, m_landVertBuf, m_landMemAlloc, 0));
+  VK_CHECK_RESULT(vkBindBufferMemory(m_device, m_landIndBuf, m_landMemAlloc, pad));
+  m_pScnMgr->GetCopyHelper()->UpdateBuffer(m_landVertBuf, 0, vertices.data(), vertexBufSize);
+  m_pScnMgr->GetCopyHelper()->UpdateBuffer(m_landIndBuf, 0, indices.data(), indexBufSize);
 }
 
 void SimpleRender::CreateUniformBuffer()
@@ -237,23 +286,32 @@ void SimpleRender::BuildCommandBufferSimple(VkCommandBuffer a_cmdBuff, VkFramebu
     VkShaderStageFlags stageFlags = (VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
 
     VkDeviceSize zero_offset = 0u;
-    VkBuffer vertexBuf = m_pScnMgr->GetVertexBuffer();
-    VkBuffer indexBuf = m_pScnMgr->GetIndexBuffer();
+    // VkBuffer vertexBuf = m_pScnMgr->GetVertexBuffer();
+    // VkBuffer indexBuf = m_pScnMgr->GetIndexBuffer();
 
-    vkCmdBindVertexBuffers(a_cmdBuff, 0, 1, &vertexBuf, &zero_offset);
-    vkCmdBindIndexBuffer(a_cmdBuff, indexBuf, 0, VK_INDEX_TYPE_UINT32);
+    // vkCmdBindVertexBuffers(a_cmdBuff, 0, 1, &vertexBuf, &zero_offset);
+    // vkCmdBindIndexBuffer(a_cmdBuff, indexBuf, 0, VK_INDEX_TYPE_UINT32);
 
-    for (uint32_t i = 0; i < m_pScnMgr->InstancesNum(); ++i)
-    {
-      auto inst = m_pScnMgr->GetInstanceInfo(i);
+    vkCmdBindVertexBuffers(a_cmdBuff, 0, 1, &m_landVertBuf, &zero_offset);
+    vkCmdBindIndexBuffer(a_cmdBuff, m_landIndBuf, 0, VK_INDEX_TYPE_UINT32);
 
-      pushConst2M.model = m_pScnMgr->GetInstanceMatrix(i);
-      vkCmdPushConstants(a_cmdBuff, m_basicForwardPipeline.layout, stageFlags, 0,
-                         sizeof(pushConst2M), &pushConst2M);
+    pushConst2M.model = m_pScnMgr->GetInstanceMatrix(0);
+    vkCmdPushConstants(a_cmdBuff, m_basicForwardPipeline.layout, stageFlags, 0,
+                       sizeof(pushConst2M), &pushConst2M);
 
-      auto mesh_info = m_pScnMgr->GetMeshInfo(inst.mesh_id);
-      vkCmdDrawIndexed(a_cmdBuff, mesh_info.m_indNum, 1, mesh_info.m_indexOffset, mesh_info.m_vertexOffset, 0);
-    }
+    vkCmdDrawIndexed(a_cmdBuff, indices.size()/3, 1, 0, 0, 0);
+
+    // for (uint32_t i = 0; i < m_pScnMgr->InstancesNum(); ++i)
+    // {
+    //   auto inst = m_pScnMgr->GetInstanceInfo(i);
+
+    //   pushConst2M.model = m_pScnMgr->GetInstanceMatrix(i);
+    //   vkCmdPushConstants(a_cmdBuff, m_basicForwardPipeline.layout, stageFlags, 0,
+    //                      sizeof(pushConst2M), &pushConst2M);
+
+    //   auto mesh_info = m_pScnMgr->GetMeshInfo(inst.mesh_id);
+    //   vkCmdDrawIndexed(a_cmdBuff, mesh_info.m_indNum, 1, mesh_info.m_indexOffset, mesh_info.m_vertexOffset, 0);
+    // }
 
     vkCmdEndRenderPass(a_cmdBuff);
   }
@@ -295,6 +353,17 @@ void SimpleRender::CleanupPipelineAndSwapchain()
   {
     vkDestroyRenderPass(m_device, m_screenRenderPass, nullptr);
     m_screenRenderPass = VK_NULL_HANDLE;
+  }
+
+  vk_utils::deleteImg(m_device, &m_NoiseMapTex);
+  if (m_NoiseTexSampler != VK_NULL_HANDLE)
+  {
+    vkDestroySampler(m_device, m_NoiseTexSampler, VK_NULL_HANDLE);
+  }
+  if (m_NoiseMapTex.mem != VK_NULL_HANDLE)
+  {
+    vkFreeMemory(m_device, m_NoiseMapTex.mem, nullptr);
+    m_NoiseMapTex.mem = VK_NULL_HANDLE;
   }
 
   m_swapchain.Cleanup();
@@ -343,11 +412,8 @@ void SimpleRender::RecreateSwapChain()
 
 void SimpleRender::Cleanup()
 {
-  if(m_pGUIRender)
-  {
-    m_pGUIRender = nullptr;
-    ImGui::DestroyContext();
-  }
+  m_pGUIRender = nullptr;
+  ImGui::DestroyContext();
   CleanupPipelineAndSwapchain();
   if(m_surface != VK_NULL_HANDLE)
   {
@@ -415,6 +481,38 @@ void SimpleRender::Cleanup()
     vkDestroyInstance(m_instance, nullptr);
     m_instance = VK_NULL_HANDLE;
   }
+
+  vk_utils::deleteImg(m_device, &m_NoiseMapTex);
+  if (m_NoiseTexSampler != VK_NULL_HANDLE)
+  {
+    vkDestroySampler(m_device, m_NoiseTexSampler, VK_NULL_HANDLE);
+  }
+  if (m_NoiseMapTex.mem != VK_NULL_HANDLE)
+  {
+    vkFreeMemory(m_device, m_NoiseMapTex.mem, nullptr);
+    m_NoiseMapTex.mem = VK_NULL_HANDLE;
+  }
+
+}
+
+void SimpleRender::SetupNoiseImage() 
+{
+  noiseGen    = new BrownNoiseGenerator(3, 0.5f, 0);
+  std::vector<uint32_t>noisePixels;
+  noiseGen->GenerateBrownNoiseMap(noisePixels, NoiseMapWidth, NoiseMapHeight);
+  unsigned char *pixels = reinterpret_cast<unsigned char *>(noisePixels.data());
+
+  vk_utils::deleteImg(m_device, &m_NoiseMapTex);
+  if (m_NoiseTexSampler != VK_NULL_HANDLE)
+  {
+    vkDestroySampler(m_device, m_NoiseTexSampler, VK_NULL_HANDLE);
+  }
+
+  int mipLevels     = 1;
+  m_NoiseMapTex     = allocateColorTextureFromDataLDR(m_device, m_physicalDevice, pixels,
+      NoiseMapWidth, NoiseMapHeight, mipLevels, VK_FORMAT_R8G8B8A8_UNORM, m_pScnMgr->GetCopyHelper());
+  m_NoiseTexSampler = vk_utils::createSampler(m_device, VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK);
+
 }
 
 void SimpleRender::ProcessInput(const AppInput &input)
@@ -439,7 +537,6 @@ void SimpleRender::ProcessInput(const AppInput &input)
                                m_swapchain.GetAttachment(i).view, m_basicForwardPipeline.pipeline);
     }
   }
-
 }
 
 void SimpleRender::UpdateCamera(const Camera* cams, uint32_t a_camsCount)
@@ -464,6 +561,8 @@ void SimpleRender::LoadScene(const char* path, bool transpose_inst_matrices)
   m_pScnMgr->LoadSceneXML(path, transpose_inst_matrices);
 
   CreateUniformBuffer();
+  SetupNoiseImage();
+  CreateLandscapeBuffers();
   SetupSimplePipeline();
 
   auto loadedCam = m_pScnMgr->GetCamera(0);
@@ -560,7 +659,7 @@ void SimpleRender::SetupGUIElements()
 
     ImGui::ColorEdit3("Meshes base color", m_uniforms.baseColor.M, ImGuiColorEditFlags_PickerHueWheel | ImGuiColorEditFlags_NoInputs);
     ImGui::Checkbox("Animate light source color", &m_uniforms.animateLightColor);
-    ImGui::SliderFloat3("Light source position", m_uniforms.lightPos.M, -10.f, 10.f);
+    ImGui::SliderFloat3("Light source position", m_uniforms.lightPos.M, -100.f, 100.f);
 
     ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 

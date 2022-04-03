@@ -15,11 +15,13 @@
 #include <string>
 #include <iostream>
 
+#include "noise_generator.h"
+
 class SimpleRender : public IRender
 {
 public:
-  const std::string VERTEX_SHADER_PATH = "../resources/shaders/simple.vert";
-  const std::string FRAGMENT_SHADER_PATH = "../resources/shaders/simple.frag";
+  const std::string VERTEX_SHADER_PATH = "../resources/shaders/simple_land.vert";
+  const std::string FRAGMENT_SHADER_PATH = "../resources/shaders/simple_land.frag";
 
   SimpleRender(uint32_t a_width, uint32_t a_height);
   ~SimpleRender()  { Cleanup(); };
@@ -81,6 +83,7 @@ protected:
     VkQueue     queue             = VK_NULL_HANDLE;
     VkSemaphore imageAvailable    = VK_NULL_HANDLE;
     VkSemaphore renderingFinished = VK_NULL_HANDLE;
+    VkSemaphore offscreenFinished = VK_NULL_HANDLE;
   } m_presentationResources;
 
   std::vector<VkFence> m_frameFences;
@@ -96,6 +99,7 @@ protected:
   VkBuffer m_ubo = VK_NULL_HANDLE;
   VkDeviceMemory m_uboAlloc = VK_NULL_HANDLE;
   void* m_uboMappedMem = nullptr;
+  
 
   pipeline_data_t m_basicForwardPipeline {};
 
@@ -104,6 +108,28 @@ protected:
   VkRenderPass m_screenRenderPass = VK_NULL_HANDLE; // main renderpass
 
   std::shared_ptr<vk_utils::DescriptorMaker> m_pBindings = nullptr;
+
+  void CreateLandscapeBuffers();
+
+  VkBuffer m_landVertBuf = VK_NULL_HANDLE;
+  VkBuffer m_landIndBuf = VK_NULL_HANDLE;
+  std::vector<uint32_t> indices;
+  VkDeviceMemory m_landMemAlloc = VK_NULL_HANDLE;
+
+  struct vertex
+  {
+    float posNorm[4];// (pos_x, pos_y, pos_z, compressed_normal)
+    float texCoordTang[4];// (u, v, compressed_tangent, unused_val)
+  };
+
+  BrownNoiseGenerator* noiseGen;
+
+  void SetupNoiseImage();
+  vk_utils::VulkanImageMem m_NoiseMapTex{};
+  VkSampler m_NoiseTexSampler = VK_NULL_HANDLE;
+
+  uint32_t NoiseMapWidth  = 64;
+  uint32_t NoiseMapHeight = 64;
 
   // *** presentation
   VkSurfaceKHR m_surface = VK_NULL_HANDLE;
