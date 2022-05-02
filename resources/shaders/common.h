@@ -26,6 +26,15 @@ struct UniformParams
   float time;
   vec3  baseColor;
   bool animateLightColor;
+  float fogHeight;
+  float fogDensity;
+  float fogStep;
+  float fogStepNum;
+  float screenWidth;
+  float screenHeight;
+  bool enableFog;
+  int fogShadowStepNum;
+  vec3  fogColor;
 };
 
 #endif //VK_GRAPHICS_BASIC_COMMON_H

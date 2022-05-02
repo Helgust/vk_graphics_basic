@@ -135,7 +135,7 @@ void SimpleRender::SetupSimplePipeline()
   if(m_pBindings == nullptr)
     m_pBindings = std::make_shared<vk_utils::DescriptorMaker>(m_device, dtypes, 1);
 
-  m_pBindings->BindBegin(VK_SHADER_STAGE_FRAGMENT_BIT);
+  m_pBindings->BindBegin(VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT);
   m_pBindings->BindBuffer(0, m_ubo, VK_NULL_HANDLE, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
   m_pBindings->BindImage(1, m_NoiseMapTex.view, m_NoiseTexSampler, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
   m_pBindings->BindEnd(&m_dSet, &m_dSetLayout);
@@ -237,7 +237,13 @@ void SimpleRender::CreateUniformBuffer()
   m_uniforms.lightPos = LiteMath::float3(0.0f, 1.0f, 1.0f);
   m_uniforms.baseColor = LiteMath::float3(0.9f, 0.92f, 1.0f);
   m_uniforms.animateLightColor = true;
-
+  m_uniforms.fogHeight = 20;
+  m_uniforms.fogDensity = 5;
+  m_uniforms.fogStep = 10;
+  m_uniforms.fogStepNum = 64;
+  m_uniforms.fogShadowStepNum = 2;
+  m_uniforms.enableFog = true;
+  m_uniforms.fogColor = LiteMath::float3(0.8f, 0.8f, 0.8f);
   UpdateUniformBuffer(0.0f);
 }
 
@@ -245,6 +251,8 @@ void SimpleRender::UpdateUniformBuffer(float a_time)
 {
 // most uniforms are updated in GUI -> SetupGUIElements()
   m_uniforms.time = a_time;
+  m_uniforms.screenWidth = m_width;
+  m_uniforms.screenHeight = m_height;
   memcpy(m_uboMappedMem, &m_uniforms, sizeof(m_uniforms));
 }
 
@@ -664,6 +672,14 @@ void SimpleRender::SetupGUIElements()
     ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 
     ImGui::NewLine();
+
+    ImGui::Checkbox("Fog Enabled", &m_uniforms.enableFog);
+    ImGui::SliderFloat("Fog Height", &m_uniforms.fogHeight, 0, 100);
+    ImGui::SliderFloat("Fog Density", &m_uniforms.fogDensity, 0, 100);
+    ImGui::SliderFloat("Fog Step", &m_uniforms.fogStep, 0, 100);
+    ImGui::SliderFloat("Fog Step Num", &m_uniforms.fogStepNum, 4, 512);
+    ImGui::SliderInt("Fog Shadow Step Num", &m_uniforms.fogShadowStepNum, 1, 100);
+    ImGui::ColorEdit3("Fog base color", m_uniforms.fogColor.M, ImGuiColorEditFlags_PickerHueWheel | ImGuiColorEditFlags_NoInputs);
 
     ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f),"Press 'B' to recompile and reload shaders");
     ImGui::Text("Changing bindings is not supported.");
