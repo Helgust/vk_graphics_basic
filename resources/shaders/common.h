@@ -33,7 +33,7 @@ struct UniformParams
   float screenWidth;
   float screenHeight;
   bool enableFog;
-  int fogShadowStepNum;
+  int dummy;
   vec3  fogColor;
 };
 

@@ -129,7 +129,7 @@ protected:
   VkSampler m_NoiseTexSampler = VK_NULL_HANDLE;
 
   uint32_t NoiseMapWidth  = 64;
-  uint32_t NoiseMapHeight = 64;
+  uint32_t NoiseMapHeight = 128;
 
   // *** presentation
   VkSurfaceKHR m_surface = VK_NULL_HANDLE;

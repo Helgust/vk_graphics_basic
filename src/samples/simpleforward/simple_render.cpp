@@ -239,11 +239,10 @@ void SimpleRender::CreateUniformBuffer()
   m_uniforms.animateLightColor = true;
   m_uniforms.fogHeight = 20;
   m_uniforms.fogDensity = 5;
-  m_uniforms.fogStep = 10;
+  m_uniforms.fogStep = 20;
   m_uniforms.fogStepNum = 64;
-  m_uniforms.fogShadowStepNum = 2;
   m_uniforms.enableFog = true;
-  m_uniforms.fogColor = LiteMath::float3(0.8f, 0.8f, 0.8f);
+  m_uniforms.fogColor = LiteMath::float3(0.8f, 0.0f, 0.0f);
   UpdateUniformBuffer(0.0f);
 }
 
@@ -676,9 +675,8 @@ void SimpleRender::SetupGUIElements()
     ImGui::Checkbox("Fog Enabled", &m_uniforms.enableFog);
     ImGui::SliderFloat("Fog Height", &m_uniforms.fogHeight, 0, 100);
     ImGui::SliderFloat("Fog Density", &m_uniforms.fogDensity, 0, 100);
-    ImGui::SliderFloat("Fog Step", &m_uniforms.fogStep, 0, 100);
+    ImGui::SliderFloat("Fog Step", &m_uniforms.fogStep, 0, 50);
     ImGui::SliderFloat("Fog Step Num", &m_uniforms.fogStepNum, 4, 512);
-    ImGui::SliderInt("Fog Shadow Step Num", &m_uniforms.fogShadowStepNum, 1, 100);
     ImGui::ColorEdit3("Fog base color", m_uniforms.fogColor.M, ImGuiColorEditFlags_PickerHueWheel | ImGuiColorEditFlags_NoInputs);
 
     ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f),"Press 'B' to recompile and reload shaders");
