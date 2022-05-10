@@ -15,9 +15,27 @@
 #include <string>
 #include <iostream>
 
+struct GBufferLayer
+{
+  vk_utils::VulkanImageMem image{};
+};
+
+struct GBuffer
+{
+  std::vector<GBufferLayer> color_layers;
+  GBufferLayer depth_stencil_layer;
+  VkRenderPass renderpass{VK_NULL_HANDLE};
+};
+
 class SimpleRender : public IRender
 {
 public:
+  const std::string GBUFFER_VERTEX_SHADER_PATH = "../resources/shaders/gbuffer.vert";
+  const std::string GBUFFER_FRAGMENT_SHADER_PATH = "../resources/shaders/gbuffer.frag";
+
+  const std::string SHADING_VERTEX_SHADER_PATH = "../resources/shaders/shading.vert";
+  const std::string SHADING_FRAGMENT_SHADER_PATH = "../resources/shaders/shading.frag";
+
   const std::string VERTEX_SHADER_PATH = "../resources/shaders/simple.vert";
   const std::string FRAGMENT_SHADER_PATH = "../resources/shaders/simple.frag";
 
@@ -38,6 +56,8 @@ public:
 
   void LoadScene(const char *path, bool transpose_inst_matrices) override;
   void DrawFrame(float a_time, DrawMode a_mode) override;
+
+  void ClearPipeline(pipeline_data_t &pipeline);
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -86,11 +106,19 @@ protected:
   std::vector<VkFence> m_frameFences;
   std::vector<VkCommandBuffer> m_cmdBuffersDrawMain;
 
-  struct
-  {
-    LiteMath::float4x4 projView;
-    LiteMath::float4x4 model;
-  } pushConst2M;
+  PushConst pushConst;
+
+  float4 meshColors[3] = {
+      float4(1.f, 0.f, 0.f, 1.f),
+      float4(0.f, 1.f, 0.f, 1.f),
+      float4(0.f, 0.f, 1.f, 1.f),
+    };
+
+  // struct
+  // {
+  //   LiteMath::float4x4 projView;
+  //   LiteMath::float4x4 model;
+  // } pushConst2M;
 
   UniformParams m_uniforms {};
   VkBuffer m_ubo = VK_NULL_HANDLE;
@@ -98,12 +126,25 @@ protected:
   void* m_uboMappedMem = nullptr;
 
   pipeline_data_t m_basicForwardPipeline {};
+  pipeline_data_t m_gBufferPipeline {};
+  pipeline_data_t m_shadingPipeline {};
+  pipeline_data_t m_shadowmapPipeline {};
+
+  VkDescriptorSet m_graphicsDescriptorSet = VK_NULL_HANDLE;
+  VkDescriptorSetLayout m_graphicsDescriptorSetLayout = VK_NULL_HANDLE;
+
+  VkDescriptorSet m_lightingDescriptorSet = VK_NULL_HANDLE;
+  VkDescriptorSetLayout m_lightingDescriptorSetLayout = VK_NULL_HANDLE;
+
+  VkDescriptorSet m_lightingFragmentDescriptorSet = VK_NULL_HANDLE;
+  VkDescriptorSetLayout m_lightingFragmentDescriptorSetLayout = VK_NULL_HANDLE;
 
   VkDescriptorSet m_dSet = VK_NULL_HANDLE;
   VkDescriptorSetLayout m_dSetLayout = VK_NULL_HANDLE;
   VkRenderPass m_screenRenderPass = VK_NULL_HANDLE; // main renderpass
 
   std::shared_ptr<vk_utils::DescriptorMaker> m_pBindings = nullptr;
+  vk_utils::DescriptorMaker& GetDescMaker();
 
   // *** presentation
   VkSurfaceKHR m_surface = VK_NULL_HANDLE;
@@ -133,6 +174,17 @@ protected:
 
   std::shared_ptr<SceneManager> m_pScnMgr;
 
+  GBuffer m_gbuffer;
+
+  GBufferLayer m_shadow_map;
+  std::vector<VkFramebuffer> m_shadowMapFrameBuffers;
+  VkRenderPass m_shadowMapRenderPass;
+
+  vec3 m_light_direction = {0.0f, 0.0f, -1.0f};
+  vec3 m_light_position = {0.0f, 0.0f, 0.0f};
+  float m_light_radius = 50;
+  float m_light_length = 1000;
+
   void DrawFrameSimple();
 
   void CreateInstance();
@@ -140,8 +192,10 @@ protected:
 
   void BuildCommandBufferSimple(VkCommandBuffer cmdBuff, VkFramebuffer frameBuff,
                                 VkImageView a_targetImageView, VkPipeline a_pipeline);
+  virtual void SetupGBufferPipeline();
+  virtual void SetupShadingPipeline();
+  void SetupShadowmapPipeline();
 
-  virtual void SetupSimplePipeline();
   void CleanupPipelineAndSwapchain();
   void RecreateSwapChain();
 
@@ -153,6 +207,12 @@ protected:
   void SetupDeviceFeatures();
   void SetupDeviceExtensions();
   void SetupValidationLayers();
+
+  void ClearGBuffer();
+  void CreateGBuffer();
+
+  void ClearShadowmap();
+  void CreateShadowmap();
 };
 
 

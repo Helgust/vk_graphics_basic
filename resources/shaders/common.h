@@ -21,11 +21,23 @@ typedef float4x4     mat4;
 
 struct UniformParams
 {
-  mat4  lightMatrix;
-  vec3  lightPos;
+  mat4 proj;
+  mat4 view;
+  mat4 lightMatrix;
+  vec3 lightAngle;
+  vec3 lightPos;
   float time;
-  vec3  baseColor;
+  vec3 baseColor;
+  float screenWidth;
+  float screenHeight;
   bool animateLightColor;
+};
+
+struct PushConst
+{
+  mat4 model;
+  vec4 color;
+  uint instanceID;
 };
 
 #endif //VK_GRAPHICS_BASIC_COMMON_H
