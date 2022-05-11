@@ -418,6 +418,24 @@ void SimpleRender::BuildCommandBufferSimple(VkCommandBuffer a_cmdBuff, VkFramebu
   vk_utils::setDefaultViewport(a_cmdBuff, static_cast<float>(m_width), static_cast<float>(m_height));
   vk_utils::setDefaultScissor(a_cmdBuff, m_width, m_height);
 
+  std::array mainPassClearValues {
+      VkClearValue {
+        .color = {{0.0f, 0.0f, 0.0f, 1.0f}}
+      },
+      VkClearValue {
+        .color = {{0.0f, 0.0f, 0.0f, 1.0f}}
+      },
+      VkClearValue {
+        .color = {{0.0f, 0.0f, 0.0f, 1.0f}}
+      },
+      VkClearValue {
+        .depthStencil = {1.0f, 0}
+      },
+      VkClearValue {
+        .color = {{0.0f, 0.0f, 0.0f, 1.0f}}
+      },
+    };
+
   ///// draw final scene to screen
   {
     VkRenderPassBeginInfo renderPassInfo = {};
@@ -427,14 +445,8 @@ void SimpleRender::BuildCommandBufferSimple(VkCommandBuffer a_cmdBuff, VkFramebu
     renderPassInfo.renderArea.offset = {0, 0};
     renderPassInfo.renderArea.extent = m_swapchain.GetExtent();
 
-    VkClearValue clearValues[5] = {};
-    clearValues[0].color = {0.0f, 0.0f, 0.0f, 1.0f};
-    clearValues[1].color = {0.0f, 0.0f, 0.0f, 1.0f};
-    clearValues[2].color = {0.0f, 0.0f, 0.0f, 1.0f};
-    clearValues[3].depthStencil = {1.0f, 0};
-    clearValues[4].color = {0.0f, 0.0f, 0.0f, 1.0f};
-    renderPassInfo.clearValueCount = 5;
-    renderPassInfo.pClearValues = &clearValues[0];
+    renderPassInfo.clearValueCount = static_cast<uint32_t>(mainPassClearValues.size());
+    renderPassInfo.pClearValues = &mainPassClearValues[0];
 
     vkCmdBeginRenderPass(a_cmdBuff, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
     {
@@ -496,8 +508,8 @@ void SimpleRender::BuildCommandBufferSimple(VkCommandBuffer a_cmdBuff, VkFramebu
         .offset = {0, 0},
         .extent = m_swapchain.GetExtent(),
       },
-      .clearValueCount = 5,
-      .pClearValues = &postFxClearValues[0],
+      .clearValueCount = static_cast<uint32_t>(mainPassClearValues.size()),
+      .pClearValues = mainPassClearValues.data(),
     };
 
   vkCmdBeginRenderPass(a_cmdBuff, &postFxInfo, VK_SUBPASS_CONTENTS_INLINE);
@@ -603,11 +615,11 @@ void SimpleRender::RecreateSwapChain()
   }
 
   m_cmdBuffersDrawMain = vk_utils::createCommandBuffers(m_device, m_commandPool, m_framesInFlight);
-  for (uint32_t i = 0; i < m_swapchain.GetImageCount(); ++i)
-  {
-    BuildCommandBufferSimple(m_cmdBuffersDrawMain[i], m_frameBuffers[i],
-                             m_swapchain.GetAttachment(i).view, m_basicForwardPipeline.pipeline);
-  }
+  // for (uint32_t i = 0; i < m_swapchain.GetImageCount(); ++i)
+  // {
+  //   BuildCommandBufferSimple(m_cmdBuffersDrawMain[i], m_frameBuffers[i],
+  //                            m_swapchain.GetAttachment(i).view, m_basicForwardPipeline.pipeline);
+  // }
 
   m_pGUIRender->OnSwapchainChanged(m_swapchain);
 }
@@ -760,11 +772,11 @@ void SimpleRender::LoadScene(const char* path, bool transpose_inst_matrices)
 
   UpdateView();
 
-  for (uint32_t i = 0; i < m_framesInFlight; ++i)
-  {
-    BuildCommandBufferSimple(m_cmdBuffersDrawMain[i], m_frameBuffers[i],
-                             m_swapchain.GetAttachment(i).view, m_basicForwardPipeline.pipeline);
-  }
+  // for (uint32_t i = 0; i < m_framesInFlight; ++i)
+  // {
+  //   BuildCommandBufferSimple(m_cmdBuffersDrawMain[i], m_frameBuffers[i],
+  //                            m_swapchain.GetAttachment(i).view, m_basicForwardPipeline.pipeline);
+  // }
 }
 
 void SimpleRender::ClearPipeline(pipeline_data_t &pipeline)

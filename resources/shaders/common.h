@@ -25,7 +25,6 @@ struct UniformParams
   mat4 view;
   mat4 lightMatrix;
   vec3 lightAngle;
-  vec3 lightPos;
   float time;
   vec3 baseColor;
   float screenWidth;
