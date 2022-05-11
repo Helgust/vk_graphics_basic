@@ -24,6 +24,7 @@ struct GBuffer
 {
   std::vector<GBufferLayer> color_layers;
   GBufferLayer depth_stencil_layer;
+  vk_utils::VulkanImageMem resolved;
   VkRenderPass renderpass{VK_NULL_HANDLE};
 };
 
@@ -36,11 +37,15 @@ public:
   const std::string SHADING_VERTEX_SHADER_PATH = "../resources/shaders/shading.vert";
   const std::string SHADING_FRAGMENT_SHADER_PATH = "../resources/shaders/shading.frag";
 
+  const std::string POSTFX_FRAGMENT_SHADER_PATH = "../resources/shaders/postfx.frag";
+
+  const std::string FULLSCREEN_QUAD3_VERTEX_SHADER_PATH = "../resources/shaders/quad3_vert.vert";
+
   const std::string VERTEX_SHADER_PATH = "../resources/shaders/simple.vert";
   const std::string FRAGMENT_SHADER_PATH = "../resources/shaders/simple.frag";
 
   SimpleRender(uint32_t a_width, uint32_t a_height);
-  ~SimpleRender()  { Cleanup(); };
+  ~SimpleRender() override  { Cleanup(); };
 
   inline uint32_t     GetWidth()      const override { return m_width; }
   inline uint32_t     GetHeight()     const override { return m_height; }
@@ -125,10 +130,13 @@ protected:
   VkDeviceMemory m_uboAlloc = VK_NULL_HANDLE;
   void* m_uboMappedMem = nullptr;
 
+  VkSampler m_ImageSampler;
+
   pipeline_data_t m_basicForwardPipeline {};
   pipeline_data_t m_gBufferPipeline {};
   pipeline_data_t m_shadingPipeline {};
   pipeline_data_t m_shadowmapPipeline {};
+  pipeline_data_t m_postFxPipeline {};
 
   VkDescriptorSet m_graphicsDescriptorSet = VK_NULL_HANDLE;
   VkDescriptorSetLayout m_graphicsDescriptorSetLayout = VK_NULL_HANDLE;
@@ -139,9 +147,16 @@ protected:
   VkDescriptorSet m_lightingFragmentDescriptorSet = VK_NULL_HANDLE;
   VkDescriptorSetLayout m_lightingFragmentDescriptorSetLayout = VK_NULL_HANDLE;
 
+  VkDescriptorSet m_postFxDescriptorSet = VK_NULL_HANDLE;
+  VkDescriptorSetLayout m_postFxDescriptorSetLayout = VK_NULL_HANDLE;
+
   VkDescriptorSet m_dSet = VK_NULL_HANDLE;
   VkDescriptorSetLayout m_dSetLayout = VK_NULL_HANDLE;
+  
   VkRenderPass m_screenRenderPass = VK_NULL_HANDLE; // main renderpass
+  VkRenderPass m_postFxRenderPass;
+
+  std::vector<VkFramebuffer> m_frameBuffers;
 
   std::shared_ptr<vk_utils::DescriptorMaker> m_pBindings = nullptr;
   vk_utils::DescriptorMaker& GetDescMaker();
@@ -149,7 +164,7 @@ protected:
   // *** presentation
   VkSurfaceKHR m_surface = VK_NULL_HANDLE;
   VulkanSwapChain m_swapchain;
-  std::vector<VkFramebuffer> m_frameBuffers;
+  VkFramebuffer m_mainPassFrameBuffer;
   vk_utils::VulkanImageMem m_depthBuffer{};
   // ***
 
@@ -194,6 +209,7 @@ protected:
                                 VkImageView a_targetImageView, VkPipeline a_pipeline);
   virtual void SetupGBufferPipeline();
   virtual void SetupShadingPipeline();
+  virtual void SetupPostfxPipeline();
   void SetupShadowmapPipeline();
 
   void CleanupPipelineAndSwapchain();
@@ -209,7 +225,9 @@ protected:
   void SetupValidationLayers();
 
   void ClearGBuffer();
+  void ClearPostFx();
   void CreateGBuffer();
+  void CreatePostFx();
 
   void ClearShadowmap();
   void CreateShadowmap();

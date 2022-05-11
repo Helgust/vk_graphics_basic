@@ -62,6 +62,9 @@ void SimpleRender::InitVulkan(const char** a_instanceExtensions, uint32_t a_inst
     VK_CHECK_RESULT(vkCreateFence(m_device, &fenceInfo, nullptr, &m_frameFences[i]));
   }
 
+  m_ImageSampler = vk_utils::createSampler(
+    m_device, VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK);
+
   m_pScnMgr = std::make_shared<SceneManager>(m_device, m_physicalDevice, m_queueFamilyIDXs.transfer,
                                              m_queueFamilyIDXs.graphics, false);
 }
@@ -92,7 +95,8 @@ void SimpleRender::InitPresentation(VkSurfaceKHR &a_surface, bool initGUI)
   m_frameBuffers = vk_utils::createFrameBuffers(m_device, m_swapchain, m_screenRenderPass, m_depthBuffer.view);
 
   CreateGBuffer();
-  CreateShadowmap();
+  //CreateShadowmap();
+  CreatePostFx();
 
   if(initGUI)
     m_pGUIRender = std::make_shared<ImGuiRender>(m_instance, m_device, m_physicalDevice, m_queueFamilyIDXs.graphics, m_graphicsQueue, m_swapchain);
@@ -136,9 +140,10 @@ vk_utils::DescriptorMaker& SimpleRender::GetDescMaker()
     std::vector<std::pair<VkDescriptorType, uint32_t> > dtypes = {
       {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
       {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4},
-      {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 4}
+      {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 4},
+      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1}
     };
-    m_pBindings = std::make_unique<vk_utils::DescriptorMaker>(m_device, dtypes, 4);
+    m_pBindings = std::make_unique<vk_utils::DescriptorMaker>(m_device, dtypes, 5);
   }
 
   return *m_pBindings;
@@ -333,6 +338,35 @@ void SimpleRender::SetupShadowmapPipeline()
     });
 }
 
+void SimpleRender::SetupPostfxPipeline()
+{
+  auto& bindings = GetDescMaker();
+
+  bindings.BindBegin(VK_SHADER_STAGE_FRAGMENT_BIT);
+  bindings.BindBuffer(0, m_ubo, nullptr, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+  bindings.BindImage(1, m_gbuffer.resolved.view, m_ImageSampler, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+  bindings.BindEnd(&m_postFxDescriptorSet, &m_postFxDescriptorSetLayout);
+
+
+  vk_utils::GraphicsPipelineMaker maker;
+
+  maker.LoadShaders(m_device, {
+    {VK_SHADER_STAGE_VERTEX_BIT, std::string{FULLSCREEN_QUAD3_VERTEX_SHADER_PATH} + ".spv"},
+    {VK_SHADER_STAGE_FRAGMENT_BIT, std::string{POSTFX_FRAGMENT_SHADER_PATH} + ".spv"},
+  });
+
+  m_postFxPipeline.layout = maker.MakeLayout(m_device,
+    {m_postFxDescriptorSetLayout}, sizeof(pushConst));
+
+  maker.SetDefaultState(m_width, m_height);
+
+  m_postFxPipeline.pipeline = maker.MakePipeline(m_device,
+    VkPipelineVertexInputStateCreateInfo {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+    },
+    m_postFxRenderPass, {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR}, vk_utils::IA_TList(), 0);
+}
+
 void SimpleRender::CreateUniformBuffer()
 {
   VkMemoryRequirements memReq;
@@ -389,7 +423,7 @@ void SimpleRender::BuildCommandBufferSimple(VkCommandBuffer a_cmdBuff, VkFramebu
     VkRenderPassBeginInfo renderPassInfo = {};
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     renderPassInfo.renderPass = m_gbuffer.renderpass;
-    renderPassInfo.framebuffer = a_frameBuff;
+    renderPassInfo.framebuffer = m_mainPassFrameBuffer;
     renderPassInfo.renderArea.offset = {0, 0};
     renderPassInfo.renderArea.extent = m_swapchain.GetExtent();
 
@@ -447,6 +481,37 @@ void SimpleRender::BuildCommandBufferSimple(VkCommandBuffer a_cmdBuff, VkFramebu
     vkCmdEndRenderPass(a_cmdBuff);
   }
 
+  //post-fx
+  std::array postFxClearValues {
+      VkClearValue {
+        .color = {{0.0f, 0.0f, 0.0f, 1.0f}}
+      },
+  };
+
+  VkRenderPassBeginInfo postFxInfo{
+      .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+      .renderPass = m_postFxRenderPass,
+      .framebuffer = a_frameBuff,
+      .renderArea = {
+        .offset = {0, 0},
+        .extent = m_swapchain.GetExtent(),
+      },
+      .clearValueCount = 5,
+      .pClearValues = &postFxClearValues[0],
+    };
+
+  vkCmdBeginRenderPass(a_cmdBuff, &postFxInfo, VK_SUBPASS_CONTENTS_INLINE);
+  {
+    vkCmdBindPipeline(a_cmdBuff, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postFxPipeline.pipeline);
+    vkCmdPushConstants(a_cmdBuff, m_postFxPipeline.layout, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT,
+        0, sizeof(pushConst), &pushConst);
+    vkCmdBindDescriptorSets(a_cmdBuff, VK_PIPELINE_BIND_POINT_GRAPHICS, m_postFxPipeline.layout,
+        0, 1, &m_postFxDescriptorSet, 0, nullptr);
+
+    vkCmdDraw(a_cmdBuff, 3, 1, 0, 0);
+  }
+  vkCmdEndRenderPass(a_cmdBuff);
+
   VK_CHECK_RESULT(vkEndCommandBuffer(a_cmdBuff));
 }
 
@@ -467,7 +532,8 @@ void SimpleRender::CleanupPipelineAndSwapchain()
   m_frameFences.clear();
 
   ClearGBuffer();
-  ClearShadowmap();
+  //ClearShadowmap();
+  ClearPostFx();
 
   vk_utils::deleteImg(m_device, &m_depthBuffer);
   
@@ -499,6 +565,7 @@ void SimpleRender::RecreateSwapChain()
   ClearPipeline(m_gBufferPipeline);
   ClearPipeline(m_shadingPipeline);
   ClearPipeline(m_shadowmapPipeline);
+  ClearPipeline(m_postFxPipeline);
 
   CleanupPipelineAndSwapchain();
   auto oldImagesNum = m_swapchain.GetImageCount();
@@ -506,10 +573,12 @@ void SimpleRender::RecreateSwapChain()
     oldImagesNum, m_vsync);
 
   CreateGBuffer();
-  CreateShadowmap();
+  //CreateShadowmap();
+  CreatePostFx();
   SetupGBufferPipeline();
   SetupShadingPipeline();
-  SetupShadowmapPipeline();
+  //SetupShadowmapPipeline();
+  SetupPostfxPipeline();
 
   std::vector<VkFormat> depthFormats = {
       VK_FORMAT_D32_SFLOAT,
@@ -556,6 +625,12 @@ void SimpleRender::Cleanup()
     vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
     m_surface = VK_NULL_HANDLE;
   }
+  if (m_ImageSampler != VK_NULL_HANDLE)
+  {
+    vkDestroySampler(m_device, m_ImageSampler, nullptr);
+    m_ImageSampler = VK_NULL_HANDLE;
+  }
+
 
   ClearPipeline(m_gBufferPipeline);
   ClearPipeline(m_shadingPipeline);
@@ -638,6 +713,7 @@ void SimpleRender::ProcessInput(const AppInput &input)
 
     SetupGBufferPipeline();
     SetupShadingPipeline();
+    SetupPostfxPipeline();
 
     // for (uint32_t i = 0; i < m_framesInFlight; ++i)
     // {
@@ -673,6 +749,7 @@ void SimpleRender::LoadScene(const char* path, bool transpose_inst_matrices)
   CreateUniformBuffer();
   SetupGBufferPipeline();
   SetupShadingPipeline();
+  SetupPostfxPipeline();
 
   auto loadedCam = m_pScnMgr->GetCamera(0);
   m_cam.fov = loadedCam.fov;
@@ -871,32 +948,35 @@ void SimpleRender::ClearGBuffer()
     m_gbuffer.renderpass = VK_NULL_HANDLE;
   }
 
-  for (auto fb : m_frameBuffers)
+  if (m_mainPassFrameBuffer != VK_NULL_HANDLE)
   {
-    vkDestroyFramebuffer(m_device, fb, nullptr);
+    //vkDestroyFramebuffer(m_device, fb, nullptr);
+    vkDestroyFramebuffer(m_device, m_mainPassFrameBuffer, nullptr);
+    m_mainPassFrameBuffer = VK_NULL_HANDLE;
   }
 
   m_frameBuffers.clear();
 
   auto clearLayer = [this](GBufferLayer& layer)
   {
-    if (layer.image.view != VK_NULL_HANDLE)
-    {
-      vkDestroyImageView(m_device, layer.image.view, nullptr);
-      layer.image.view = VK_NULL_HANDLE;
-    }
+    // if (layer.image.view != VK_NULL_HANDLE)
+    // {
+    //   vkDestroyImageView(m_device, layer.image.view, nullptr);
+    //   layer.image.view = VK_NULL_HANDLE;
+    // }
 
-    if (layer.image.image != VK_NULL_HANDLE)
-    {
-      vkDestroyImage(m_device, layer.image.image, nullptr);
-      layer.image.image = VK_NULL_HANDLE;
-    }
+    // if (layer.image.image != VK_NULL_HANDLE)
+    // {
+    //   vkDestroyImage(m_device, layer.image.image, nullptr);
+    //   layer.image.image = VK_NULL_HANDLE;
+    // }
 
-    if (layer.image.mem != VK_NULL_HANDLE)
-    {
-      vkFreeMemory(m_device, layer.image.mem, nullptr);
-      layer.image.mem = nullptr;
-    }
+    // if (layer.image.mem != VK_NULL_HANDLE)
+    // {
+    //   vkFreeMemory(m_device, layer.image.mem, nullptr);
+    //   layer.image.mem = nullptr;
+    // }
+    vk_utils::deleteImg(m_device, &layer.image);
   };
 
   for (auto& layer : m_gbuffer.color_layers)
@@ -907,6 +987,22 @@ void SimpleRender::ClearGBuffer()
   m_gbuffer.color_layers.clear();
 
   clearLayer(m_gbuffer.depth_stencil_layer);
+}
+
+void SimpleRender::ClearPostFx()
+{
+  for (auto framebuf : m_frameBuffers)
+  {
+    vkDestroyFramebuffer(m_device, framebuf, nullptr);
+  }
+
+  m_frameBuffers.clear();
+
+  if (m_postFxRenderPass != VK_NULL_HANDLE)
+  {
+    vkDestroyRenderPass(m_device, m_postFxRenderPass, nullptr);
+    m_postFxRenderPass = VK_NULL_HANDLE;
+  }
 }
 
 void SimpleRender::CreateGBuffer()
@@ -960,6 +1056,9 @@ void SimpleRender::CreateGBuffer()
   m_gbuffer.depth_stencil_layer = makeLayer(dformat,
     VkImageUsageFlagBits(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT));
 
+  m_gbuffer.resolved.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  vk_utils::createImgAllocAndBind(m_device, m_physicalDevice, m_width, m_height,
+    VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, &m_gbuffer.resolved);
 
 
   // Renderpass
@@ -969,9 +1068,9 @@ void SimpleRender::CreateGBuffer()
     attachmentDescs.fill(VkAttachmentDescription {
       .samples = VK_SAMPLE_COUNT_1_BIT,
       .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-      .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+      .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
       .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-      .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+      .stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE,
       .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
       .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     });
@@ -990,9 +1089,9 @@ void SimpleRender::CreateGBuffer()
     // Present image
     {
       auto& present = attachmentDescs[layers.size() + 1];
-      present.format = m_swapchain.GetFormat();
+      present.format = m_gbuffer.resolved.format;
       present.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-      present.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+      present.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     }
 
     std::array<VkAttachmentReference, layers.size()> gBufferColorRefs;
@@ -1037,18 +1136,6 @@ void SimpleRender::CreateGBuffer()
     // Use subpass dependencies for attachment layout transitions
     std::array dependencies {
       VkSubpassDependency {
-        .srcSubpass = VK_SUBPASS_EXTERNAL,
-        .dstSubpass = 1,
-        // Source is THE PRESENT SEMAPHORE BEING SIGNALED ON THIS PRECISE STAGE!!!!!
-        .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        // Destination is swapchain image being filled with gbuffer resolution
-        .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        // Semaphore waiting doesn't do any memory ops
-        .srcAccessMask = {},
-        .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-        .dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
-      },
-      VkSubpassDependency {
         .srcSubpass = 0,
         .dstSubpass = 1,
         // Source is gbuffer being written
@@ -1057,6 +1144,15 @@ void SimpleRender::CreateGBuffer()
         .dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
         .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
         .dstAccessMask = VK_ACCESS_INPUT_ATTACHMENT_READ_BIT,
+        .dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
+      },
+      VkSubpassDependency {
+        .srcSubpass = 1,
+        .dstSubpass = VK_SUBPASS_EXTERNAL,
+        .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
         .dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
       }
     };
@@ -1075,9 +1171,7 @@ void SimpleRender::CreateGBuffer()
   }
 
   // Framebuffers
-  m_frameBuffers.resize(m_swapchain.GetImageCount());
-  for (std::size_t i = 0; i < m_frameBuffers.size(); ++i)
-  {
+
     std::array<VkImageView, layers.size() + 2> attachments;
     for (std::size_t j = 0; j < layers.size(); ++j)
     {
@@ -1085,20 +1179,19 @@ void SimpleRender::CreateGBuffer()
     }
 
     attachments[layers.size()] = m_gbuffer.depth_stencil_layer.image.view;
-    attachments.back() = m_swapchain.GetAttachment(i).view;
+    attachments.back() = m_gbuffer.resolved.view;
 
     VkFramebufferCreateInfo fbufCreateInfo {
-      .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-      .pNext = NULL,
-      .renderPass = m_gbuffer.renderpass,
-      .attachmentCount = static_cast<uint32_t>(attachments.size()),
-      .pAttachments = attachments.data(),
-      .width = m_width,
-      .height = m_height,
-      .layers = 1,
-    };
-    VK_CHECK_RESULT(vkCreateFramebuffer(m_device, &fbufCreateInfo, nullptr, &m_frameBuffers[i]));
-  }
+    .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+    .pNext = NULL,
+    .renderPass = m_gbuffer.renderpass,
+    .attachmentCount = static_cast<uint32_t>(attachments.size()),
+    .pAttachments = attachments.data(),
+    .width = m_width,
+    .height = m_height,
+    .layers = 1,
+  };
+    VK_CHECK_RESULT(vkCreateFramebuffer(m_device, &fbufCreateInfo, nullptr, &m_mainPassFrameBuffer));
 }
 
 void SimpleRender::ClearShadowmap()
@@ -1138,6 +1231,88 @@ void SimpleRender::ClearShadowmap()
   };
 
   clearLayer(m_shadow_map);
+}
+
+void SimpleRender::CreatePostFx()
+{
+  // Renderpass
+  {
+    std::array attachmentDescs{
+      VkAttachmentDescription {
+        .format = m_swapchain.GetFormat(),
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+        // no stencil in present img
+        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+      },
+    };
+
+    std::array postfxColorRefs{
+      VkAttachmentReference{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
+    };
+
+    std::array subpasses {
+      VkSubpassDescription {
+        .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .colorAttachmentCount = static_cast<uint32_t>(postfxColorRefs.size()),
+        .pColorAttachments = postfxColorRefs.data(),
+      },
+    };
+
+    // Use subpass dependencies for attachment layout transitions
+    std::array dependencies {
+      VkSubpassDependency {
+        .srcSubpass = VK_SUBPASS_EXTERNAL,
+        .dstSubpass = 0,
+        // Source is THE PRESENT SEMAPHORE BEING SIGNALED ON THIS PRECISE STAGE!!!!!
+        .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        // Destination is swapchain image being filled with gbuffer resolution
+        .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        // Semaphore waiting doesn't do any memory ops
+        .srcAccessMask = {},
+        .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        .dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
+      },
+    };
+
+    VkRenderPassCreateInfo renderPassInfo {
+      .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+      .attachmentCount = static_cast<uint32_t>(attachmentDescs.size()),
+      .pAttachments = attachmentDescs.data(),
+      .subpassCount = static_cast<uint32_t>(subpasses.size()),
+      .pSubpasses = subpasses.data(),
+      .dependencyCount = static_cast<uint32_t>(dependencies.size()),
+      .pDependencies = dependencies.data(),
+    };
+
+    VK_CHECK_RESULT(vkCreateRenderPass(m_device, &renderPassInfo, nullptr, &m_postFxRenderPass));
+  }
+
+  // Framebuffer
+  m_frameBuffers.resize(m_swapchain.GetImageCount());
+  for (uint32_t i = 0; i < m_frameBuffers.size(); ++i)
+  {
+    std::array attachments{
+      m_swapchain.GetAttachment(i).view,
+    };
+
+    VkFramebufferCreateInfo fbufCreateInfo {
+      .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+      .pNext = NULL,
+      .renderPass = m_postFxRenderPass,
+      .attachmentCount = static_cast<uint32_t>(attachments.size()),
+      .pAttachments = attachments.data(),
+      .width = m_width,
+      .height = m_height,
+      .layers = 1,
+    };
+
+    VK_CHECK_RESULT(vkCreateFramebuffer(m_device, &fbufCreateInfo, nullptr, &m_frameBuffers[i]));
+  }
 }
 
 void SimpleRender::CreateShadowmap()
