@@ -7,7 +7,8 @@ if __name__ == '__main__':
 
     shader_list = [ "gbuffer.vert", "gbuffer.frag",
                     "shading.vert", "shading.frag",
-                    "postfx.frag", "quad3_vert.vert"]
+                    "postfx.frag", "quad3_vert.vert",
+                    "ssao.frag"]
 
     for shader in shader_list:
         subprocess.run([glslang_cmd, "-V", shader, "-o", "{}.spv".format(shader)])

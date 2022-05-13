@@ -33,6 +33,8 @@ class SimpleRender : public IRender
 public:
   const std::string GBUFFER_VERTEX_SHADER_PATH = "../resources/shaders/gbuffer.vert";
   const std::string GBUFFER_FRAGMENT_SHADER_PATH = "../resources/shaders/gbuffer.frag";
+  
+  const std::string SSAO_FRAGMENT_SHADER_PATH = "../resources/shaders/ssao.frag";
 
   const std::string SHADING_VERTEX_SHADER_PATH = "../resources/shaders/shading.vert";
   const std::string SHADING_FRAGMENT_SHADER_PATH = "../resources/shaders/shading.frag";
@@ -43,6 +45,13 @@ public:
 
   const std::string VERTEX_SHADER_PATH = "../resources/shaders/simple.vert";
   const std::string FRAGMENT_SHADER_PATH = "../resources/shaders/simple.frag";
+
+  const uint32_t POSTFX_DOWNSCALE_FACTOR = 4;
+
+  static constexpr uint32_t SSAO_KERNEL_SIZE = 64;
+  static constexpr uint32_t SSAO_KERNEL_SIZE_BYTES = 4*sizeof(float)*SSAO_KERNEL_SIZE;
+  static constexpr uint32_t SSAO_NOISE_DIM = 8;
+  static constexpr float SSAO_RADIUS = 0.5f;
 
   SimpleRender(uint32_t a_width, uint32_t a_height);
   ~SimpleRender() override  { Cleanup(); };
@@ -114,9 +123,9 @@ protected:
   PushConst pushConst;
 
   float4 meshColors[3] = {
-      float4(1.f, 0.f, 0.f, 1.f),
-      float4(0.f, 1.f, 0.f, 1.f),
-      float4(0.f, 0.f, 1.f, 1.f),
+      float4(1.f, 1.f, 1.f, 1.f),
+      float4(1.f, 1.f,1.f, 1.f),
+      float4(1.f, 1.f, 1.f, 1.f),
     };
 
   // struct
@@ -132,11 +141,14 @@ protected:
 
   VkSampler m_ImageSampler;
 
+  VkDeviceMemory m_indirectRenderingMemory = VK_NULL_HANDLE;
+
   pipeline_data_t m_basicForwardPipeline {};
   pipeline_data_t m_gBufferPipeline {};
   pipeline_data_t m_shadingPipeline {};
   pipeline_data_t m_shadowmapPipeline {};
   pipeline_data_t m_postFxPipeline {};
+  pipeline_data_t m_ssaoPipeline;
 
   VkDescriptorSet m_graphicsDescriptorSet = VK_NULL_HANDLE;
   VkDescriptorSetLayout m_graphicsDescriptorSetLayout = VK_NULL_HANDLE;
@@ -150,13 +162,26 @@ protected:
   VkDescriptorSet m_postFxDescriptorSet = VK_NULL_HANDLE;
   VkDescriptorSetLayout m_postFxDescriptorSetLayout = VK_NULL_HANDLE;
 
+  VkDescriptorSet m_ssaoDescriptorSet = VK_NULL_HANDLE;
+  VkDescriptorSetLayout m_ssaoDescriptorSetLayout = VK_NULL_HANDLE;
+
   VkDescriptorSet m_dSet = VK_NULL_HANDLE;
   VkDescriptorSetLayout m_dSetLayout = VK_NULL_HANDLE;
+  
+
   
   VkRenderPass m_screenRenderPass = VK_NULL_HANDLE; // main renderpass
   VkRenderPass m_postFxRenderPass;
 
   std::vector<VkFramebuffer> m_frameBuffers;
+  
+  VkFramebuffer m_prePostFxFramebuffer;
+
+  VkRenderPass m_prePostFxRenderPass;
+  vk_utils::VulkanImageMem m_ssaoImage;
+  vk_utils::VulkanImageMem m_ssaoNoise;
+  VkSampler m_noiseSampler;
+  VkBuffer m_ssaoKernel = VK_NULL_HANDLE;
 
   std::shared_ptr<vk_utils::DescriptorMaker> m_pBindings = nullptr;
   vk_utils::DescriptorMaker& GetDescMaker();
@@ -179,6 +204,8 @@ protected:
   uint32_t m_height = 1024u;
   uint32_t m_framesInFlight  = 2u;
   bool m_vsync = false;
+  bool m_ssao = true;
+  float m_sunAngle = 0.5f;
 
   VkPhysicalDeviceFeatures m_enabledDeviceFeatures = {};
   std::vector<const char*> m_deviceExtensions      = {};
