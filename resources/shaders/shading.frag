@@ -49,7 +49,7 @@ void main()
     mat4 mViewInv = inverse(Params.view);
 
     // from lightspace to screenspace
-    vec3 lightDir = normalize(transpose(mat3(lightMat) * mat3(mViewInv)) * vec3(0., 0., 1.));
+    vec3 lightDir = -normalize(transpose(mat3(lightMat) * mat3(mViewInv)) * vec3(0., 0., 1.));
 
     //if (gl_FragCoord.x == 0.5 && gl_FragCoord.y == 0.5)
     //    debugPrintfEXT("lightDir: %v3f\n", lightDir.xyz);
