@@ -22,9 +22,10 @@ layout(binding = 0, set = 0) uniform AppData
 
 layout(binding = 1, set = 0) uniform sampler2D inDepth;
 layout (binding = 2) uniform sampler2D inNormal;
-layout (binding = 3) uniform sampler2D ssaoNoise;
+layout (binding = 3) uniform sampler2D inPosition;
+layout (binding = 4) uniform sampler2D ssaoNoise;
 
-layout (binding = 4) uniform UBOSSAOKernel
+layout (binding = 5) uniform UBOSSAOKernel
 {
 	vec4 samples[SSAO_KERNEL_SIZE];
 } uboSSAOKernel;
@@ -40,6 +41,7 @@ layout(location = 0) out float out_fragColor;
 
 
 mat4 invProj = inverse(params.mProj);
+mat4 view = params.mView;
 
 vec3 screenToCam(vec2 pos, float depth)
 {
@@ -54,10 +56,9 @@ void main()
 {
 	const uvec2 renderingRes = uvec2(Params.screenWidth, Params.screenHeight)/Params.postFxDownscaleFactor;
     const vec2 fragPos = gl_FragCoord.xy / vec2(renderingRes);
-    const mat4 invView = inverse(params.mView);
 
-	const float depth = textureLod(inDepth, fragPos, 0).r;
-    const vec3 cPosition = screenToCam(fragPos, depth);
+	const float depth = textureLod(inDepth, fragPos, 0).x;
+    const vec3 cPosition = textureLod(inPosition, fragPos, 0).xyz;
 
 	if (-cPosition.z > 100)
 	{
@@ -87,7 +88,7 @@ void main()
 
 		// project
 		vec4 offset = vec4(cSamplePos, 1.0f);
-		offset = params.mProj * offset;
+		offset = invProj * offset;
 		offset /= offset.w;
 		offset.xyz = offset.xyz * 0.5f + 0.5f;
 
@@ -95,7 +96,7 @@ void main()
 
 		float rangeCheck = smoothstep(0.0f, 1.0f, SSAO_RADIUS / abs(cPosition.z - cSample.z));
 		occlusion += float(cSample.z >= cPosition.z + bias)
-			// MAGICAL HACK
+			//MAGICAL HACK
 			* float(normalize(tSampleDir).z >= 0.5)
 			* rangeCheck;
 	}

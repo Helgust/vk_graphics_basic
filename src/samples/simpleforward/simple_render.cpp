@@ -361,8 +361,10 @@ void SimpleRender::SetupPostfxPipeline()
   // TODO: Sampler should be different here
   bindings.BindImage(1, m_gbuffer.depth_stencil_layer.image.view, m_ImageSampler, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
   bindings.BindImage(2, m_gbuffer.color_layers[0].image.view, m_ImageSampler, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-  bindings.BindImage(3, m_ssaoNoise.view, m_noiseSampler, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-  bindings.BindBuffer(4, m_ssaoKernel, nullptr, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+  bindings.BindImage(3, m_gbuffer.color_layers[1].image.view, m_ImageSampler, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+  bindings.BindImage(4, m_ssaoNoise.view, m_noiseSampler, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+  bindings.BindBuffer(5, m_ssaoKernel, nullptr, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+
   bindings.BindEnd(&m_ssaoDescriptorSet, &m_ssaoDescriptorSetLayout);
 
 

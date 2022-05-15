@@ -48,8 +48,8 @@ int main()
 
   initVulkanGLFW(app, window, VULKAN_DEVICE_ID, showGUI);
 
-  app->LoadScene("../resources/scenes/043_cornell_normals/statex_00001.xml", false);
-  //app->LoadScene("../resources/scenes/01_simple_scenes/bunny_cornell.xml", false);
+  //app->LoadScene("../resources/scenes/043_cornell_normals/statex_00001.xml", false);
+  app->LoadScene("../resources/scenes/01_simple_scenes/bunny_cornell.xml", false);
 
   mainLoop(app, window, showGUI);
 

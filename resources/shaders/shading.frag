@@ -35,6 +35,7 @@ void main()
 
     mat4 lightMat = Params.lightMatrix;
 
+    
     vec4 screenSpacePos = vec4(
         2.0 * gl_FragCoord.xy / vec2(Params.screenWidth, Params.screenHeight) - 1.0,
         subpassLoad(inDepth).r,
@@ -54,8 +55,8 @@ void main()
     //if (gl_FragCoord.x == 0.5 && gl_FragCoord.y == 0.5)
     //    debugPrintfEXT("lightDir: %v3f\n", lightDir.xyz);
 
-
-    vec3 lightSpacePos = (lightMat * mViewInv * vec4(position, 1.)).xyz;
+    
+    vec3 lightSpacePos = (lightMat * mViewInv * vec4(position, 1.)).xyz / screenSpacePos.w;
 
     vec3 ambient = vec3(0.05f) * lightColor;
     vec3 diffuse = max(dot(normal, lightDir), 0.0f) * lightColor;
