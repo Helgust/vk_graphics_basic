@@ -12,19 +12,21 @@
 #include <vk_fbuf_attachment.h>
 #include <vk_images.h>
 #include <vk_swapchain.h>
+#include <vk_quad.h>
 #include <string>
 #include <iostream>
 
 struct GBufferLayer
 {
-  vk_utils::VulkanImageMem image{};
+  vk_utils::VulkanImageMem image {};
+  VkSampler sampler {VK_NULL_HANDLE};
 };
 
 struct GBuffer
 {
   std::vector<GBufferLayer> color_layers;
   GBufferLayer depth_stencil_layer;
-  VkRenderPass renderpass{VK_NULL_HANDLE};
+  VkRenderPass renderpass {VK_NULL_HANDLE};
 };
 
 class SimpleRender : public IRender
@@ -35,6 +37,9 @@ public:
 
   const std::string SHADING_VERTEX_SHADER_PATH = "../resources/shaders/shading.vert";
   const std::string SHADING_FRAGMENT_SHADER_PATH = "../resources/shaders/shading.frag";
+
+  const std::string SHADOWMAP_VERTEX_SHADER_PATH = "../resources/shaders/depth_only.vert";
+  const std::string SHADOWMAP_FRAGMENT_SHADER_PATH = "../resources/shaders/depth_only.frag";
 
   const std::string VERTEX_SHADER_PATH = "../resources/shaders/simple.vert";
   const std::string FRAGMENT_SHADER_PATH = "../resources/shaders/simple.frag";
@@ -113,6 +118,7 @@ protected:
       float4(0.f, 1.f, 0.f, 1.f),
       float4(0.f, 0.f, 1.f, 1.f),
     };
+  
 
   // struct
   // {
@@ -139,9 +145,12 @@ protected:
   VkDescriptorSet m_lightingFragmentDescriptorSet = VK_NULL_HANDLE;
   VkDescriptorSetLayout m_lightingFragmentDescriptorSetLayout = VK_NULL_HANDLE;
 
+  VkDescriptorSet m_shadowMapDescriptorSet             = VK_NULL_HANDLE;
+  VkDescriptorSetLayout m_shadowMapDescriptorSetLayout = VK_NULL_HANDLE;
+
   VkDescriptorSet m_dSet = VK_NULL_HANDLE;
   VkDescriptorSetLayout m_dSetLayout = VK_NULL_HANDLE;
-  VkRenderPass m_screenRenderPass = VK_NULL_HANDLE; // main renderpass
+  //VkRenderPass m_screenRenderPass = VK_NULL_HANDLE; // main renderpass
 
   std::shared_ptr<vk_utils::DescriptorMaker> m_pBindings = nullptr;
   vk_utils::DescriptorMaker& GetDescMaker();
@@ -150,7 +159,6 @@ protected:
   VkSurfaceKHR m_surface = VK_NULL_HANDLE;
   VulkanSwapChain m_swapchain;
   std::vector<VkFramebuffer> m_frameBuffers;
-  vk_utils::VulkanImageMem m_depthBuffer{};
   // ***
 
   // *** GUI
@@ -163,7 +171,7 @@ protected:
   uint32_t m_width  = 1024u;
   uint32_t m_height = 1024u;
   uint32_t m_framesInFlight  = 2u;
-  bool m_vsync = false;
+  bool m_vsync = true;
 
   VkPhysicalDeviceFeatures m_enabledDeviceFeatures = {};
   std::vector<const char*> m_deviceExtensions      = {};
@@ -180,17 +188,27 @@ protected:
   std::vector<VkFramebuffer> m_shadowMapFrameBuffers;
   VkRenderPass m_shadowMapRenderPass;
 
-  vec3 m_light_direction = {0.0f, 0.0f, -1.0f};
-  vec3 m_light_position = {0.0f, 0.0f, 0.0f};
-  float m_light_radius = 50;
-  float m_light_length = 1000;
+  LiteMath::uint2 m_shadowMapSize = {2048, 2048};
+
+  bool m_shadowMapDebugQuadEnabled = false;
+  std::unique_ptr<vk_utils::IQuad> m_shadowMapDebugQuad;
+  VkDescriptorSet       m_shadowMapQuadDS;
+  VkDescriptorSetLayout m_shadowMapQuadDSLayout = nullptr;
+
+  vec3 m_light_direction = {0., 0., -1.};
+  float m_light_radius = 20;
+  float m_light_length = 150;
+  void CreateInstance();
+  void CreateDevice(uint32_t a_deviceId);
+  void BuildCommandBufferSimple(VkCommandBuffer cmdBuff, size_t frameBufferIndex);
+  void AddCmdsShadowmapPass(VkCommandBuffer a_cmdBuff, size_t frameBufferIndex);
+
 
   void DrawFrameSimple();
 
-  void CreateInstance();
-  void CreateDevice(uint32_t a_deviceId);
 
-  void BuildCommandBufferSimple(VkCommandBuffer cmdBuff, VkFramebuffer frameBuff,
+
+  void BuildCommandBufferSimple(VkCommandBuffer cmdBuff, size_t frameBufferIndex,
                                 VkImageView a_targetImageView, VkPipeline a_pipeline);
   virtual void SetupGBufferPipeline();
   virtual void SetupShadingPipeline();

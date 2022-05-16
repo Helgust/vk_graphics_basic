@@ -12,7 +12,8 @@ set(RENDER_SOURCE
         ../../render/render_imgui.cpp
         create_render.cpp
         simple_render.cpp
-        simple_render_tex.cpp)
+        #simple_render_tex.cpp
+        )
 
 add_executable(simple_forward main.cpp ../../utils/glfw_window.cpp ${VK_UTILS_SRC} ${SCENE_LOADER_SRC} ${RENDER_SOURCE} ${IMGUI_SRC})
 

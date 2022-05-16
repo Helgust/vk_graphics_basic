@@ -31,7 +31,7 @@ protected:
   void LoadTexture();
 
   void SetupGUIElements() override;
-  void SetupSimplePipeline();
+  void SetupSimplePipeline() override;
   void Cleanup();
 
 };
