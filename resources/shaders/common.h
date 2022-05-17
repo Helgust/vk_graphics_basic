@@ -36,6 +36,7 @@ struct UniformParams
   float screenWidth;
   float screenHeight;
   BOOL animateLightColor;
+  BOOL enableSss;
 };
 
 struct PushConst

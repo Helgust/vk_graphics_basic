@@ -21,6 +21,12 @@ layout (input_attachment_index = 1, set = 1, binding = 1) uniform subpassInput i
 layout (input_attachment_index = 2, set = 1, binding = 2) uniform subpassInput inAlbedo;
 layout (input_attachment_index = 3, set = 1, binding = 3) uniform subpassInput inDepth;
 
+vec3 lightPos = vec3(0.0f,0.5f,0.0f);
+
+float saturate(float val) {
+    return clamp(val, 0.0, 1.0);
+}
+
 layout (location = 0) in vec2 outUV;
 
 float sq(float x) { return x*x; }
@@ -57,72 +63,25 @@ float calculateShadow(const vec3 lightSpacePos, const float bias) {
 }
 
 const float PI = 3.14159265359;
+const float DEG_TO_RAD = PI / 180.0;
+float distortion = 12;
+
 
 vec3 materialcolor()
 {
     return vec3(1.);//vec3(material.r, material.g, material.b);
 }
 
-// Normal Distribution function --------------------------------------
-float D_GGX(float dotNH, float roughness)
-{
-    float alpha = roughness * roughness;
-    float alpha2 = alpha * alpha;
-    float denom = dotNH * dotNH * (alpha2 - 1.0) + 1.0;
-    return (alpha2)/(PI * denom*denom);
+
+vec4 sss(float thickness, float attentuation, vec3 normal) {
+    vec3 light = normalize((normal * distortion));
+    float dot1 = pow(saturate(dot(vec3(0,0,-1), -light)), 2) * 5;
+    float lt = attentuation * (dot1 + 3) * thickness;
+    //lt = 1.0 - lt;
+    vec4 res = vec4(1.0f,1.0f,1.0f,1.0f) * lt;
+    return res;
 }
 
-// Geometric Shadowing function --------------------------------------
-float G_SchlicksmithGGX(float dotNL, float dotNV, float roughness)
-{
-    float r = (roughness + 1.0);
-    float k = (r*r) / 8.0;
-    float GL = dotNL / (dotNL * (1.0 - k) + k);
-    float GV = dotNV / (dotNV * (1.0 - k) + k);
-    return GL * GV;
-}
-
-// Fresnel function ----------------------------------------------------
-vec3 F_Schlick(float cosTheta, float metallic)
-{
-    vec3 F0 = mix(vec3(0.04), materialcolor(), metallic); // * material.specular
-    vec3 F = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
-    return F;
-}
-
-// Specular BRDF composition --------------------------------------------
-
-vec3 BRDF(vec3 L, vec3 V, vec3 N, float metallic, float roughness)
-{
-    // Precalculate vectors and dot products
-    vec3 H = normalize (V + L);
-    float dotNV = clamp(dot(N, V), 0.0, 1.0);
-    float dotNL = clamp(dot(N, L), 0.0, 1.0);
-    float dotLH = clamp(dot(L, H), 0.0, 1.0);
-    float dotNH = clamp(dot(N, H), 0.0, 1.0);
-
-    // Light color fixed
-    vec3 lightColor = vec3(1.f);
-
-    vec3 color = vec3(0.0);
-
-    if (dotNL > 0.0)
-    {
-        float rroughness = max(0.05, roughness);
-        // D = Normal distribution (Distribution of the microfacets)
-        float D = D_GGX(dotNH, roughness);
-        // G = Geometric shadowing term (Microfacets shadowing)
-        float G = G_SchlicksmithGGX(dotNL, dotNV, rroughness);
-        // F = Fresnel factor (Reflectance depending on angle of incidence)
-        vec3 F = F_Schlick(dotNV, metallic);
-
-        vec3 spec = D * F * G / (4.0 * dotNL * dotNV);
-
-        color += spec * dotNL * lightColor;
-    }
-
-    return color;
-}
 
 void main()
 {
@@ -134,14 +93,17 @@ void main()
         lightColor = mix(dark_violet, chartreuse, abs(sin(Params.time)));
 
     mat4 lightMat = Params.lightMatrix;
-    
-    
+    mat4 projMat  = Params.proj;
+
+    //debugPrintfEXT("lightDir: %v3f\n", projMat);
+
     vec4 screenSpacePos = vec4(
         2.0 * gl_FragCoord.xy / vec2(Params.screenWidth, Params.screenHeight) - 1.0,
-        subpassLoad(inDepth).r,
+        subpassLoad(inDepth).x,
         1.0);
+    screenSpacePos.y = 1.0f;
 
-    vec4 camSpacePos = inverse(Params.proj) * screenSpacePos;
+    vec4 camSpacePos = inverse(projMat) * screenSpacePos;
     
     vec3 position = camSpacePos.xyz / camSpacePos.w;
     vec3 normal = subpassLoad(inNormal).xyz;
@@ -161,12 +123,19 @@ void main()
 
     float shadowmap_visibility = clamp(calculateShadow(lightSpacePos, 0.001f), 0., 1.);
     //shadowmap_visibility = texture(shadowmapTex, lightSpacePos * vec3(0.5f, 0.5f, 1.f) + vec3(0.5f, 0.5f, -0.010f));
-
+    float lightDist = length(vec3(0.0,0.5,0.0) - position);
     const float ambient_intensity = 0.05f;
     vec3 ambient = ambient_intensity * lightColor;
     vec3 diffuse = max(dot(normal, lightDir), 0.0f) * lightColor;
-
     diffuse *= (1.f - ambient_intensity);
 
-    out_fragColor = vec4((ambient + shadowmap_visibility * diffuse) * albedo, 1.);
+     float thickness = abs(texture(shadowmapTex, lightSpacePos * vec3(0.5f, 0.5f, 1.f) + vec3(0.5f, 0.5f, -0.010f)));
+
+    if (thickness <= 0.0) {
+        discard;
+    }
+
+    thickness = ((1.0 - thickness) * 0.05);
+    vec4 sss_col = sss(thickness, 3.0f, normal);
+    out_fragColor = vec4((ambient + shadowmap_visibility * diffuse) * albedo, 1.) + sss_col;
 }

@@ -198,6 +198,7 @@ protected:
   vec3 m_light_direction = {0., 0., -1.};
   float m_light_radius = 20;
   float m_light_length = 150;
+  bool m_enable_sss  = false;
   void CreateInstance();
   void CreateDevice(uint32_t a_deviceId);
   void BuildCommandBufferSimple(VkCommandBuffer cmdBuff, size_t frameBufferIndex);

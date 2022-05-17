@@ -355,6 +355,7 @@ void SimpleRender::UpdateUniformBuffer(float a_time)
                            * LiteMath::lookAt({0, 0, 0}, m_light_direction * 10.0f, {0, 1, 0});
   m_uniforms.screenWidth = m_width;
   m_uniforms.screenHeight = m_height;
+  m_uniforms.enableSss = m_enable_sss;
   memcpy(m_uboMappedMem, &m_uniforms, sizeof(m_uniforms));
 }
 
@@ -738,6 +739,7 @@ void SimpleRender::SetupGUIElements()
     ImGui::Begin("Simple render settings");
 
     ImGui::ColorEdit3("Meshes base color", m_uniforms.baseColor.M, ImGuiColorEditFlags_PickerHueWheel | ImGuiColorEditFlags_NoInputs);
+    ImGui::Checkbox("Enable SSS", &m_enable_sss);
     //ImGui::Checkbox("Animate light source color", &m_uniforms.animateLightColor);
     //ImGui::SliderFloat3("Light source position", m_uniforms.lightPos.M, -10.f, 10.f);
 
