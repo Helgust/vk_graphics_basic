@@ -27,6 +27,24 @@ float saturate(float val) {
     return clamp(val, 0.0, 1.0);
 }
 
+const float trans_coef = 0.5;
+
+float width(const vec4 lightSpacePos, const float bias){
+    float d1 = texture(shadowmapTex, vec3(lightSpacePos.xy * 0.5 + 0.5, 0));
+    float d2 = lightSpacePos.z;
+    return abs(d1 - d2);
+}
+
+// This function can be precomputed for efficiency
+vec3 T(float s) {
+    return vec3(0.233, 0.455, 0.649) * exp(-s*s/0.0064) + \
+           vec3(0.1, 0.336, 0.344) * exp(-s*s/0.0484) + \
+           vec3(0.118, 0.198, 0.0) * exp(-s*s/0.187) + \
+           vec3(0.113, 0.007, 0.007) * exp(-s*s/0.567) + \
+           vec3(0.358, 0.004, 0.0) * exp(-s*s/1.99) + \
+           vec3(0.078, 0.0, 0.0) * exp(-s*s/7.41);
+}
+
 layout (location = 0) in vec2 outUV;
 
 float sq(float x) { return x*x; }
@@ -67,22 +85,6 @@ const float DEG_TO_RAD = PI / 180.0;
 float distortion = 12;
 
 
-vec3 materialcolor()
-{
-    return vec3(1.);//vec3(material.r, material.g, material.b);
-}
-
-
-vec4 sss(float thickness, float attentuation, vec3 normal) {
-    vec3 light = normalize((normal * distortion));
-    float dot1 = pow(saturate(dot(vec3(0,0,-1), -light)), 2) * 5;
-    float lt = attentuation * (dot1 + 3) * thickness;
-    //lt = 1.0 - lt;
-    vec4 res = vec4(1.0f,1.0f,1.0f,1.0f) * lt;
-    return res;
-}
-
-
 void main()
 {
     const vec3 dark_violet = vec3(0.59f, 0.0f, 0.82f);
@@ -99,11 +101,10 @@ void main()
 
     vec4 screenSpacePos = vec4(
         2.0 * gl_FragCoord.xy / vec2(Params.screenWidth, Params.screenHeight) - 1.0,
-        subpassLoad(inDepth).x,
+        subpassLoad(inDepth).r,
         1.0);
-    screenSpacePos.y = 1.0f;
 
-    vec4 camSpacePos = inverse(projMat) * screenSpacePos;
+    vec4 camSpacePos = inverse(Params.proj) * screenSpacePos;
     
     vec3 position = camSpacePos.xyz / camSpacePos.w;
     vec3 normal = subpassLoad(inNormal).xyz;
@@ -119,23 +120,23 @@ void main()
     //    debugPrintfEXT("lightDir: %v3f\n", lightDir.xyz);
 
 
-    vec3 lightSpacePos = (lightMat * mViewInv * vec4(position, 1.)).xyz;
+    vec4 lightSpacePos = (lightMat * mViewInv * vec4(position, 1.));
 
-    float shadowmap_visibility = clamp(calculateShadow(lightSpacePos, 0.001f), 0., 1.);
+    float shadowmap_visibility = clamp(calculateShadow(lightSpacePos.xyz, 0.001f), 0., 1.);
     //shadowmap_visibility = texture(shadowmapTex, lightSpacePos * vec3(0.5f, 0.5f, 1.f) + vec3(0.5f, 0.5f, -0.010f));
-    float lightDist = length(vec3(0.0,0.5,0.0) - position);
-    const float ambient_intensity = 0.05f;
+    const float ambient_intensity = 0.3f;
     vec3 ambient = ambient_intensity * lightColor;
     vec3 diffuse = max(dot(normal, lightDir), 0.0f) * lightColor;
     diffuse *= (1.f - ambient_intensity);
 
-     float thickness = abs(texture(shadowmapTex, lightSpacePos * vec3(0.5f, 0.5f, 1.f) + vec3(0.5f, 0.5f, -0.010f)));
+    float s = width(lightSpacePos, 0.0f);
+    float E = max(0.3 + dot(-normal, lightDir), 0.0);
+    vec3 transmittance = T(s) * albedo * E * trans_coef;
 
-    if (thickness <= 0.0) {
-        discard;
+    vec3 M = (ambient + diffuse) * albedo * shadowmap_visibility;
+    if (Params.enableSss) {
+      M += transmittance;
     }
 
-    thickness = ((1.0 - thickness) * 0.05);
-    vec4 sss_col = sss(thickness, 3.0f, normal);
-    out_fragColor = vec4((ambient + shadowmap_visibility * diffuse) * albedo, 1.) + sss_col;
+    out_fragColor = vec4(M , 1.);
 }
